@@ -73,7 +73,6 @@ def run(
     for meta in datasets:
         key = (meta.source_name, meta.table_name)
         df_cache[key] = _load_dataframe(spark, meta, config)
-        df_cache[key].cache()
 
     candidates: list[dict[str, Any]] = []
 
@@ -137,12 +136,6 @@ def run(
     print(f"\n  Pairs evaluated : {pairs_evaluated}")
     print(f"  Candidates found: {len(candidates)}")
 
-    # Unpersist caches
-    for df in df_cache.values():
-        try:
-            df.unpersist()
-        except Exception:
-            pass
 
     print("\nRELATIONSHIP AGENT — complete")
     _write_delta(spark, candidates, config)
@@ -362,6 +355,53 @@ def _load_dataframe(spark, meta: DatasetMeta, config: PipelineConfig):
 
 
 # ---------------------------------------------------------------------------
+# Serverless-compatible Delta writer
+# saveAsTable is not supported on serverless compute. Instead we:
+#   1. Derive a deterministic storage path under the schema location
+#   2. Write the data with spark.write.save(path)
+#   3. Register (or refresh) the table with CREATE TABLE IF NOT EXISTS ... LOCATION
+# ---------------------------------------------------------------------------
+
+def _write_to_table(spark, df, full_table_name: str, mode: str = "overwrite"):
+    """
+    Write df to a Unity Catalog Delta table without using saveAsTable().
+    Compatible with Databricks serverless compute.
+    """
+    from pyspark.sql import functions as F
+
+    # Derive storage path: use the schema default location + table name
+    parts       = full_table_name.split(".")          # [catalog, schema, table]
+    catalog     = parts[0]
+    schema      = parts[1]
+    table       = parts[2]
+
+    # Fetch schema location from Unity Catalog
+    schema_info = spark.sql(f"DESCRIBE SCHEMA {catalog}.{schema}").collect()
+    schema_loc  = next(
+        (r["data_type"] for r in schema_info if r["database_description_item"] == "Location"),
+        f"/Volumes/{catalog}/{schema}/_delta_tables",
+    )
+    path = f"{schema_loc}/{table}"
+
+    # Write data
+    (
+        df.write
+          .format("delta")
+          .mode(mode)
+          .option("mergeSchema", "true")
+          .save(path)
+    )
+
+    # Register / refresh the table pointing at that path
+    spark.sql(
+        f"CREATE TABLE IF NOT EXISTS {full_table_name} "
+        f"USING DELTA LOCATION '{path}'"
+    )
+    # If table already existed from a previous run, REFRESH so metadata is current
+    spark.sql(f"REFRESH TABLE {full_table_name}")
+
+
+# ---------------------------------------------------------------------------
 # Persist results to Delta
 # ---------------------------------------------------------------------------
 
@@ -383,11 +423,5 @@ def _write_delta(
         f"{config.output_catalog}.{config.output_schema}"
         f".{config.output_tables['relationship']}"
     )
-    (
-        df.write
-          .format("delta")
-          .mode("overwrite")
-          .option("mergeSchema", "true")
-          .saveAsTable(target)
-    )
+    _write_to_table(spark, df, target, mode="overwrite")
     print(f"  [delta] Relationship candidates written → {target}")
