@@ -111,58 +111,56 @@ def _discover_volume(
 def _list_files(root_path: str, extensions: tuple[str, ...]) -> list[str]:
     """
     List files under root_path matching the given extensions.
-    Uses dbutils.fs.ls when available (Databricks), else os.walk.
 
-    Path handling:
-      - Unity Catalog Volumes must be addressed as /Volumes/... for Spark reads.
-      - dbutils.fs.ls returns paths prefixed with "dbfs:/Volumes/..." for Volume
-        files. We strip the "dbfs:" prefix to get "/Volumes/..." which Spark
-        and Unity Catalog can read directly.
-      - We NEVER produce /dbfs/... paths — public DBFS root is disabled on
-        modern Databricks workspaces (DBFS_DISABLED error).
+    Uses os.walk with the native /Volumes/... path for all Unity Catalog
+    Volume paths. This avoids the DBFS_DISABLED error entirely — dbutils.fs.ls
+    returns dbfs:/Volumes/... paths which Spark tries to resolve via the legacy
+    DBFS mount (/dbfs/), which is disabled on modern Databricks workspaces.
+
+    os.walk works directly on /Volumes/... without any path translation,
+    and the same paths are valid for spark.read.csv / spark.read.parquet.
+
+    For legacy dbfs:/ paths (non-Volume), we fall back to dbutils.fs.ls.
     """
     matched: list[str] = []
 
-    try:
-        from pyspark.dbutils import DBUtils
-        from pyspark.sql import SparkSession
-        dbutils = DBUtils(SparkSession.builder.getOrCreate())
+    # Normalise: strip trailing slash, convert dbfs:/Volumes -> /Volumes
+    normalised = root_path.rstrip("/")
+    if normalised.startswith("dbfs:/Volumes/"):
+        normalised = normalised[len("dbfs:"):]   # /Volumes/...
 
-        def _to_spark_path(raw: str) -> str:
-            """
-            Convert a dbutils.fs.ls entry path to a form Spark can read.
-
-            dbutils.fs.ls returns entries like:
-              dbfs:/Volumes/catalog/schema/vol/file.csv  <- Unity Catalog Volume
-              dbfs:/FileStore/...                        <- legacy DBFS
-
-            For Volume paths we drop the "dbfs:" prefix, leaving /Volumes/...
-            For legacy DBFS paths we leave the dbfs:/ prefix intact.
-            We never produce /dbfs/... — that mount point is disabled.
-            """
-            if raw.startswith("dbfs:/Volumes/"):
-                return raw[len("dbfs:"):]   # /Volumes/catalog/schema/...
-            return raw                       # dbfs:/FileStore/... unchanged
-
-        def _walk(path: str):
-            try:
-                entries = dbutils.fs.ls(path)
-            except Exception:
-                return
-            for entry in entries:
-                if entry.isDir():
-                    _walk(entry.path)
-                elif any(entry.path.endswith(ext) for ext in extensions):
-                    matched.append(_to_spark_path(entry.path))
-
-        _walk(root_path)
-
-    except ImportError:
-        # Local fallback for off-cluster testing
-        for dirpath, _, filenames in os.walk(root_path):
+    if normalised.startswith("/Volumes/"):
+        # Unity Catalog Volume — use os.walk directly on the native path.
+        # No dbutils, no /dbfs/ translation needed.
+        for dirpath, _, filenames in os.walk(normalised):
             for fname in filenames:
-                if any(fname.endswith(ext) for ext in extensions):
+                if any(fname.lower().endswith(ext) for ext in extensions):
                     matched.append(os.path.join(dirpath, fname))
+    else:
+        # Legacy DBFS path — use dbutils.fs.ls
+        try:
+            from pyspark.dbutils import DBUtils
+            from pyspark.sql import SparkSession
+            dbutils = DBUtils(SparkSession.builder.getOrCreate())
+
+            def _walk(path: str):
+                try:
+                    entries = dbutils.fs.ls(path)
+                except Exception:
+                    return
+                for entry in entries:
+                    if entry.isDir():
+                        _walk(entry.path)
+                    elif any(entry.path.endswith(ext) for ext in extensions):
+                        matched.append(entry.path)
+
+            _walk(normalised)
+
+        except ImportError:
+            for dirpath, _, filenames in os.walk(normalised):
+                for fname in filenames:
+                    if any(fname.lower().endswith(ext) for ext in extensions):
+                        matched.append(os.path.join(dirpath, fname))
 
     return matched
 
