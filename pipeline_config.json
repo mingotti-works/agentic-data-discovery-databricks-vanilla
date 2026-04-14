@@ -2,23 +2,14 @@
   "_comment": "Agentic Data Discovery Pipeline — configuration file. No MLflow required.",
 
   "volume_paths": [
-    "/Volumes/my_catalog/my_schema/raw_data"
+   "/Volumes/workspace/raw/ungm"
   ],
-  "volume_file_extensions": [".parquet", ".csv"],
+  "volume_file_extensions": [".csv", ".json", ".parquet"],
 
-  "jdbc_sources": [
-    {
-      "name":     "source_postgres",
-      "url":      "jdbc:postgresql://host:5432/mydb",
-      "driver":   "org.postgresql.Driver",
-      "user_env": "JDBC_POSTGRES_USER",
-      "pass_env": "JDBC_POSTGRES_PASSWORD",
-      "tables":   ""
-    }
-  ],
+  "jdbc_sources": [],
 
-  "output_catalog": "my_catalog",
-  "output_schema":  "agent_results",
+  "output_catalog": "workspace",
+  "output_schema":  "agentic_data_discovery",
   "output_tables": {
     "discovery":    "discovery_results",
     "profiling":    "profiling_results",
@@ -26,7 +17,7 @@
     "semantic":     "semantic_results"
   },
 
-  "artefacts_path": "/Volumes/my_catalog/my_schema/pipeline_artefacts",
+  "artefacts_path": "/Volumes/workspace/raw/raw/agentic_data_discovery/",
 
   "profiling_sample_rows":   10000,
   "profiling_sample_values": 10,
