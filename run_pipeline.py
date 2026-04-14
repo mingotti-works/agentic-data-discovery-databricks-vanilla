@@ -23,9 +23,11 @@ dbutils.widgets.text(
 
 import sys, os
 
-AGENTS_DIR = "/Workspace/Repos/your-repo/databricks_agents"  # adjust to your repo path
+AGENTS_DIR = "/Workspace/Users/leandro.mingoti@gmail.com/agentic-data-discovery-databricks-vanilla/agents" # adjust this
 if AGENTS_DIR not in sys.path:
     sys.path.insert(0, AGENTS_DIR)
+
+print(f"Agents directory is {AGENTS_DIR}")
 
 # COMMAND ----------
 
