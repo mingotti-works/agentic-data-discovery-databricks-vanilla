@@ -112,14 +112,37 @@ def _list_files(root_path: str, extensions: tuple[str, ...]) -> list[str]:
     """
     List files under root_path matching the given extensions.
     Uses dbutils.fs.ls when available (Databricks), else os.walk.
+
+    Path handling:
+      - Unity Catalog Volumes must be addressed as /Volumes/... for Spark reads.
+      - dbutils.fs.ls returns paths prefixed with "dbfs:/Volumes/..." for Volume
+        files. We strip the "dbfs:" prefix to get "/Volumes/..." which Spark
+        and Unity Catalog can read directly.
+      - We NEVER produce /dbfs/... paths — public DBFS root is disabled on
+        modern Databricks workspaces (DBFS_DISABLED error).
     """
     matched: list[str] = []
 
     try:
-        # Databricks dbutils path
         from pyspark.dbutils import DBUtils
         from pyspark.sql import SparkSession
         dbutils = DBUtils(SparkSession.builder.getOrCreate())
+
+        def _to_spark_path(raw: str) -> str:
+            """
+            Convert a dbutils.fs.ls entry path to a form Spark can read.
+
+            dbutils.fs.ls returns entries like:
+              dbfs:/Volumes/catalog/schema/vol/file.csv  <- Unity Catalog Volume
+              dbfs:/FileStore/...                        <- legacy DBFS
+
+            For Volume paths we drop the "dbfs:" prefix, leaving /Volumes/...
+            For legacy DBFS paths we leave the dbfs:/ prefix intact.
+            We never produce /dbfs/... — that mount point is disabled.
+            """
+            if raw.startswith("dbfs:/Volumes/"):
+                return raw[len("dbfs:"):]   # /Volumes/catalog/schema/...
+            return raw                       # dbfs:/FileStore/... unchanged
 
         def _walk(path: str):
             try:
@@ -130,8 +153,7 @@ def _list_files(root_path: str, extensions: tuple[str, ...]) -> list[str]:
                 if entry.isDir():
                     _walk(entry.path)
                 elif any(entry.path.endswith(ext) for ext in extensions):
-                    # Convert dbfs:/ prefix to /dbfs/ for Spark reads
-                    matched.append(entry.path.replace("dbfs:/", "/dbfs/"))
+                    matched.append(_to_spark_path(entry.path))
 
         _walk(root_path)
 
