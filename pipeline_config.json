@@ -2,7 +2,8 @@
   "_comment": "Agentic Data Discovery Pipeline — configuration file. No MLflow required.",
 
   "volume_paths": [
-   "/Volumes/workspace/raw/ungm"
+   "/Volumes/workspace/raw/ungm",
+   "/Volumes/workspace/raw/sap"
   ],
   "volume_file_extensions": [".csv", ".json", ".parquet"],
 
