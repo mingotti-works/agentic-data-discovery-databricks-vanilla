@@ -1,0 +1,41 @@
+{
+  "_comment": "Agentic Data Discovery Pipeline — configuration file. No MLflow required.",
+
+  "volume_paths": [
+    "/Volumes/my_catalog/my_schema/raw_data"
+  ],
+  "volume_file_extensions": [".parquet", ".csv"],
+
+  "jdbc_sources": [
+    {
+      "name":     "source_postgres",
+      "url":      "jdbc:postgresql://host:5432/mydb",
+      "driver":   "org.postgresql.Driver",
+      "user_env": "JDBC_POSTGRES_USER",
+      "pass_env": "JDBC_POSTGRES_PASSWORD",
+      "tables":   ""
+    }
+  ],
+
+  "output_catalog": "my_catalog",
+  "output_schema":  "agent_results",
+  "output_tables": {
+    "discovery":    "discovery_results",
+    "profiling":    "profiling_results",
+    "relationship": "relationship_candidates",
+    "semantic":     "semantic_results"
+  },
+
+  "artefacts_path": "/Volumes/my_catalog/my_schema/pipeline_artefacts",
+
+  "profiling_sample_rows":   10000,
+  "profiling_sample_values": 10,
+
+  "relationship_overlap_threshold":  0.80,
+  "relationship_max_cols_per_table": 50,
+
+  "auto_accept_confidence":  0.85,
+  "human_review_confidence": 0.50,
+
+  "llm_provider": "stub"
+}
