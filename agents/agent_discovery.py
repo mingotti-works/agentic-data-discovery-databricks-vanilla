@@ -84,7 +84,7 @@ def _discover_volume(
             if ext == ".parquet":
                 df = spark.read.parquet(file_path)
             elif ext == ".csv":
-                df = spark.read.option("header", "true").option("inferSchema", "true").csv(file_path)
+                df = spark.read.format("csv").option("header", "true").option("sep", ",").option("inferSchema", "true").load(file_path)
             else:
                 continue
 
